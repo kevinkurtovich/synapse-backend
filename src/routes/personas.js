@@ -1,10 +1,20 @@
 const { Router } = require('express');
+const { distillPersona } = require('../services/distillPersona');
 const router = Router();
 
 // POST /api/personas/:id/distill → DistillPersona service
 router.post('/:id/distill', async (req, res) => {
-  // TODO: implement DistillPersona
-  res.status(501).json({ error: 'Not implemented' });
+  try {
+    const personaId = req.params.id;
+    const { transcript, parent_snapshot_id } = req.body;
+
+    const result = await distillPersona(personaId, transcript, parent_snapshot_id);
+
+    res.status(201).json(result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // GET /api/personas/:id
