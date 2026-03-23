@@ -61,4 +61,37 @@ async function callTargetLlm(provider, modelName, systemPrompt, userContent) {
   throw err;
 }
 
-module.exports = { callOrchestrator, callTargetLlm };
+/**
+ * Calls the target LLM with a full multi-turn messages array.
+ * Used by SendMessage for conversational context.
+ * `messages` is an OpenAI-compatible array: [{role, content}, ...].
+ * Returns the raw response text string.
+ */
+async function callTargetLlmChat(provider, modelName, messages) {
+  if (provider === 'openai') {
+    try {
+      const response = await openai.chat.completions.create({
+        model: modelName,
+        max_tokens: 4096,
+        messages,
+      });
+      return response.choices[0].message.content;
+    } catch (e) {
+      const err = new Error('Target LLM chat call failed: ' + (e.message || 'unknown error'));
+      err.statusCode = 502;
+      throw err;
+    }
+  }
+
+  if (provider === 'anthropic') {
+    const err = new Error('Anthropic provider not yet supported');
+    err.statusCode = 501;
+    throw err;
+  }
+
+  const err = new Error(`Provider '${provider}' not yet supported`);
+  err.statusCode = 501;
+  throw err;
+}
+
+module.exports = { callOrchestrator, callTargetLlm, callTargetLlmChat };
