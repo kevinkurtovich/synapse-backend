@@ -1,22 +1,76 @@
 const { Router } = require('express');
 const { calibrateSnapshot } = require('../services/calibrateSnapshot');
+const { exportSnapshot, importSnapshot } = require('../services/snapshotService');
+const supabase = require('../supabase');
 const router = Router();
 
 // GET /api/snapshots/:id
 router.get('/:id', async (req, res) => {
-  res.status(501).json({ error: 'Not implemented' });
+  try {
+    const { data: snapshot, error } = await supabase
+      .from('snapshot')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !snapshot) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: persona } = await supabase
+      .from('persona')
+      .select('name')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    res.status(200).json({
+      ...snapshot,
+      persona_name: persona ? persona.name : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/snapshots/:id/profiles
+router.get('/:id/profiles', async (req, res) => {
+  try {
+    const { data: profiles, error } = await supabase
+      .from('restoration_profile')
+      .select('id, provider, model_name, status, score, created_at')
+      .eq('snapshot_id', req.params.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json(profiles || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/snapshots/:id/export → ExportSnapshot service
 router.get('/:id/export', async (req, res) => {
-  // TODO: implement ExportSnapshot
-  res.status(501).json({ error: 'Not implemented' });
+  try {
+    const bundle = await exportSnapshot(req.params.id);
+    res.status(200).json(bundle);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // POST /api/snapshots/import → ImportSnapshot service
 router.post('/import', async (req, res) => {
-  // TODO: implement ImportSnapshot
-  res.status(501).json({ error: 'Not implemented' });
+  try {
+    const result = await importSnapshot(req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // POST /api/snapshots/:id/calibrate → CalibrateSnapshot service

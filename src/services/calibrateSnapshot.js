@@ -314,4 +314,4 @@ async function calibrateSnapshot(snapshotId, provider, modelName) {
   };
 }
 
-module.exports = { calibrateSnapshot };
+module.exports = { calibrateSnapshot, scoreResponse };
