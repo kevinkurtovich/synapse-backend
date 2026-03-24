@@ -1,8 +1,35 @@
 const { Router } = require('express');
 const { calibrateSnapshot } = require('../services/calibrateSnapshot');
-const { exportSnapshot, importSnapshot } = require('../services/snapshotService');
+const { authenticate } = require('../middleware/auth');
+const { exportSnapshot, importSnapshot, createSnapshotDirect } = require('../services/snapshotService');
 const supabase = require('../supabase');
 const router = Router();
+
+// POST /api/snapshots — createSnapshotDirect (FEAT-0007)
+// Protected: requires valid Supabase JWT in Authorization header.
+router.post('/', authenticate, async (req, res) => {
+  try {
+    const { companion_name, memory_context } = req.body;
+
+    if (!companion_name || !companion_name.trim()) {
+      return res.status(400).json({ error: 'companion_name is required' });
+    }
+    if (!memory_context || !memory_context.trim()) {
+      return res.status(400).json({ error: 'memory_context is required' });
+    }
+
+    const result = await createSnapshotDirect(
+      companion_name.trim(),
+      memory_context.trim(),
+      req.userId
+    );
+
+    res.status(201).json(result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ error: err.message });
+  }
+});
 
 // GET /api/snapshots/:id
 router.get('/:id', async (req, res) => {

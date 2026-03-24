@@ -159,4 +159,26 @@ async function importSnapshot(bundle) {
   };
 }
 
-module.exports = { exportSnapshot, importSnapshot };
+// FEAT-0007: Direct Snapshot creation service
+async function createSnapshotDirect(companionName, memoryContext, userId) {
+  const { data: result, error: rpcError } = await supabase.rpc(
+    'create_snapshot_direct_atomic',
+    {
+      p_companion_name:  companionName,
+      p_memory_context:  memoryContext,
+      p_owner_user_id:   userId,
+    }
+  );
+
+  if (rpcError) {
+    const err = new Error(
+      'Failed to create snapshot: ' + (rpcError.message || 'unknown error')
+    );
+    err.statusCode = 500;
+    throw err;
+  }
+
+  return result;
+}
+
+module.exports = { exportSnapshot, importSnapshot, createSnapshotDirect };
