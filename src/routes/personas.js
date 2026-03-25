@@ -220,9 +220,9 @@ router.get('/:id', authenticate, async (req, res) => {
 router.post('/:id/distill', authenticate, async (req, res) => {
   try {
     const personaId = req.params.id;
-    const { transcript, parent_snapshot_id } = req.body;
+    const { transcript, parent_snapshot_id, turns: preParsedTurns } = req.body;
 
-    const result = await distillPersona(personaId, transcript, parent_snapshot_id);
+    const result = await distillPersona(personaId, transcript, parent_snapshot_id, preParsedTurns);
 
     res.status(201).json(result);
   } catch (err) {

@@ -6,42 +6,147 @@ const model = process.env.OPENAI_MODEL || 'gpt-4o';
 const MAX_TURNS = 30;
 
 // ---------------------------------------------------------------------------
-// Transcript Parsing
+// Transcript Parsing — Multi-Strategy (FEAT-0015)
 // ---------------------------------------------------------------------------
 
-function parseTranscript(rawTranscript) {
+/**
+ * Strategy 1 — Explicit labels (high confidence).
+ * Match any consistent `Speaker: message` pattern at the start of a line.
+ * Accepts any labels — "User:", "GPT:", "Claude:", "[User]", timestamps + name, etc.
+ */
+function strategyLabeled(rawTranscript) {
   const lines = rawTranscript.split('\n');
   const turns = [];
-  let currentUser = null;
-  let currentAssistant = null;
+  const labelCounts = {};
+
+  // First pass: detect labels. A label is any token(s) at the start of a line
+  // followed by a colon (or bracket-wrapped), before actual message content.
+  const labelPattern = /^(?:\[([^\]]+)\]|(\d{1,2}:\d{2}(?:\s*(?:AM|PM))?\s*[-—]\s*)?([A-Za-z][A-Za-z0-9 _.']{0,30}))\s*:\s*(.+)/;
+
+  let currentLabel = null;
+  let currentText = '';
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    const userMatch = trimmed.match(/^(?:user|human|User|Human)\s*:\s*(.*)/i);
-    const assistantMatch = trimmed.match(/^(?:assistant|ai|Assistant|AI)\s*:\s*(.*)/i);
-
-    if (userMatch) {
-      if (currentUser !== null && currentAssistant !== null) {
-        turns.push({ user_message: currentUser, assistant_message: currentAssistant });
+    const match = trimmed.match(labelPattern);
+    if (match) {
+      // Flush previous turn
+      if (currentLabel && currentText.trim()) {
+        turns.push({ speaker: currentLabel, text: currentText.trim() });
+        labelCounts[currentLabel] = (labelCounts[currentLabel] || 0) + 1;
       }
-      currentUser = userMatch[1].trim();
-      currentAssistant = null;
-    } else if (assistantMatch) {
-      currentAssistant = assistantMatch[1].trim();
-    } else if (currentAssistant !== null) {
-      currentAssistant += ' ' + trimmed;
-    } else if (currentUser !== null) {
-      currentUser += ' ' + trimmed;
+      currentLabel = (match[1] || match[3] || '').trim();
+      currentText = (match[4] || '').trim();
+    } else if (currentLabel) {
+      currentText += ' ' + trimmed;
     }
   }
 
-  if (currentUser !== null && currentAssistant !== null) {
-    turns.push({ user_message: currentUser, assistant_message: currentAssistant });
+  // Flush last turn
+  if (currentLabel && currentText.trim()) {
+    turns.push({ speaker: currentLabel, text: currentText.trim() });
+    labelCounts[currentLabel] = (labelCounts[currentLabel] || 0) + 1;
   }
 
-  return turns.slice(0, MAX_TURNS);
+  if (turns.length < 2) return null;
+
+  const distinctLabels = Object.keys(labelCounts);
+  // High confidence: two distinct labels that alternate consistently
+  const confidence = distinctLabels.length >= 2 ? 'high' : 'low';
+
+  // Normalize speakers to A/B if exactly 2 distinct labels
+  if (distinctLabels.length === 2) {
+    const [labelA, labelB] = distinctLabels;
+    return {
+      turns: turns.map((t) => ({
+        speaker: t.speaker === labelA ? labelA : labelB,
+        text: t.text,
+      })),
+      confidence,
+      strategy: 'labeled',
+    };
+  }
+
+  return { turns, confidence, strategy: 'labeled' };
+}
+
+/**
+ * Strategy 2 — Heuristic alternation (medium confidence).
+ * Split on double newlines (paragraph breaks). If 3+ paragraphs,
+ * treat odd paragraphs as speaker A and even as speaker B.
+ */
+function strategyAlternating(rawTranscript) {
+  const paragraphs = rawTranscript
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+
+  if (paragraphs.length < 2) return null;
+
+  const turns = paragraphs.map((p, i) => ({
+    speaker: i % 2 === 0 ? 'A' : 'B',
+    text: p.replace(/\n/g, ' ').trim(),
+  }));
+
+  const confidence = paragraphs.length >= 3 ? 'medium' : 'low';
+
+  return { turns, confidence, strategy: 'alternating' };
+}
+
+/**
+ * Strategy 3 — Single-block fallback (low confidence).
+ * Split on single newlines as a last resort.
+ */
+function strategyFallback(rawTranscript) {
+  const lines = rawTranscript
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length < 2) return null;
+
+  const turns = lines.map((l, i) => ({
+    speaker: i % 2 === 0 ? 'A' : 'B',
+    text: l,
+  }));
+
+  return { turns, confidence: 'low', strategy: 'fallback' };
+}
+
+/**
+ * Multi-strategy parser. Returns { turns, confidence, strategy } or throws.
+ */
+function parseTranscriptMulti(rawTranscript) {
+  // Strategy 1: explicit labels
+  const labeled = strategyLabeled(rawTranscript);
+  if (labeled && labeled.turns.length >= 2) return labeled;
+
+  // Strategy 2: paragraph alternation
+  const alternating = strategyAlternating(rawTranscript);
+  if (alternating && alternating.turns.length >= 2) return alternating;
+
+  // Strategy 3: single-line fallback
+  const fallback = strategyFallback(rawTranscript);
+  if (fallback && fallback.turns.length >= 2) return fallback;
+
+  return null;
+}
+
+/**
+ * Legacy-compatible wrapper: converts multi-strategy result into
+ * the { user_message, assistant_message } pairs expected by the LLM pipeline.
+ */
+function turnsToLegacyPairs(turns) {
+  const pairs = [];
+  for (let i = 0; i < turns.length - 1; i += 2) {
+    pairs.push({
+      user_message: turns[i].text,
+      assistant_message: turns[i + 1].text,
+    });
+  }
+  return pairs.slice(0, MAX_TURNS);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +272,7 @@ Generate 3-7 tests that would verify this persona's key traits are preserved.`;
 // Main Service
 // ---------------------------------------------------------------------------
 
-async function distillPersona(personaId, rawTranscript, parentSnapshotId) {
+async function distillPersona(personaId, rawTranscript, parentSnapshotId, preParsedTurns) {
   // --- Validation ---
 
   // Check persona exists
@@ -183,8 +288,8 @@ async function distillPersona(personaId, rawTranscript, parentSnapshotId) {
     throw err;
   }
 
-  // Validate transcript
-  if (!rawTranscript || typeof rawTranscript !== 'string' || rawTranscript.trim() === '') {
+  // Either raw transcript or pre-parsed turns must be provided
+  if (!preParsedTurns && (!rawTranscript || typeof rawTranscript !== 'string' || rawTranscript.trim() === '')) {
     const err = new Error('Transcript is required and must be non-empty');
     err.statusCode = 400;
     throw err;
@@ -212,14 +317,27 @@ async function distillPersona(personaId, rawTranscript, parentSnapshotId) {
   }
 
   // --- Transcript parsing ---
-  const turns = parseTranscript(rawTranscript);
+  // If pre-parsed turns were provided (from a confirmed preview), skip re-parsing (FEAT-0015).
+  let legacyTurns;
+  if (preParsedTurns && Array.isArray(preParsedTurns) && preParsedTurns.length >= 2) {
+    legacyTurns = turnsToLegacyPairs(preParsedTurns);
+  } else {
+    const parseResult = parseTranscriptMulti(rawTranscript);
+    if (!parseResult || parseResult.turns.length < 2) {
+      const err = new Error('Transcript must contain at least two conversation turns from different speakers');
+      err.statusCode = 400;
+      throw err;
+    }
+    legacyTurns = turnsToLegacyPairs(parseResult.turns);
+  }
 
-  if (turns.length === 0) {
+  if (legacyTurns.length === 0) {
     const err = new Error('Transcript must contain at least one valid conversation turn');
     err.statusCode = 400;
     throw err;
   }
 
+  const turns = legacyTurns;
   const assistantMessages = turns.map((t) => t.assistant_message);
 
   // --- Three-pass LLM pipeline (all in memory, nothing persisted yet) ---
@@ -289,4 +407,4 @@ async function distillPersona(personaId, rawTranscript, parentSnapshotId) {
   };
 }
 
-module.exports = { distillPersona };
+module.exports = { distillPersona, parseTranscriptMulti };
