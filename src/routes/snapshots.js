@@ -158,6 +158,95 @@ router.get('/:id/export', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/snapshots/:id/tests — list all tests for snapshot
+router.get('/:id/tests', authenticate, async (req, res) => {
+  try {
+    const { data: snapshot, error: snapError } = await supabase
+      .from('snapshot')
+      .select('persona_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (snapError || !snapshot) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: persona, error: personaError } = await supabase
+      .from('persona')
+      .select('owner_user_id')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: tests, error: testsError } = await supabase
+      .from('test')
+      .select('id, prompt, expected_traits_json, forbidden_traits_json, created_at')
+      .eq('snapshot_id', req.params.id)
+      .order('created_at', { ascending: true });
+
+    if (testsError) {
+      return res.status(500).json({ error: testsError.message });
+    }
+
+    res.status(200).json(tests || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/snapshots/:id/tests — create a test for snapshot
+router.post('/:id/tests', authenticate, async (req, res) => {
+  try {
+    const { data: snapshot, error: snapError } = await supabase
+      .from('snapshot')
+      .select('persona_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (snapError || !snapshot) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: persona, error: personaError } = await supabase
+      .from('persona')
+      .select('owner_user_id')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { prompt, expected_traits_json, forbidden_traits_json } = req.body;
+
+    if (!prompt || !prompt.trim()) {
+      return res.status(400).json({ error: 'prompt is required' });
+    }
+
+    const { data: test, error: insertError } = await supabase
+      .from('test')
+      .insert({
+        snapshot_id: req.params.id,
+        prompt: prompt.trim(),
+        expected_traits_json: expected_traits_json || {},
+        forbidden_traits_json: forbidden_traits_json || {},
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return res.status(500).json({ error: insertError.message });
+    }
+
+    res.status(201).json(test);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/snapshots/import → ImportSnapshot service
 router.post('/import', authenticate, async (req, res) => {
   try {
