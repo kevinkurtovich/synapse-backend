@@ -216,6 +216,38 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
+// DELETE /api/personas/:id — delete a Persona (owner-scoped, BUG-0009 orphan cleanup)
+router.delete('/:id', authenticate, async (req, res) => {
+  try {
+    const { data: persona, error: findError } = await supabase
+      .from('persona')
+      .select('id, owner_user_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (findError || !persona) {
+      return res.status(404).json({ error: 'Persona not found' });
+    }
+
+    if (persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Persona not found' });
+    }
+
+    const { error: deleteError } = await supabase
+      .from('persona')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) {
+      return res.status(500).json({ error: deleteError.message });
+    }
+
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/personas/:id/distill → DistillPersona service
 router.post('/:id/distill', authenticate, async (req, res) => {
   try {
