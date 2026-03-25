@@ -13,9 +13,13 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'name is required' });
     }
 
+    // Slug is not used for lookup but has a unique constraint — generate one to avoid collision
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      + '-' + Math.random().toString(36).slice(2, 6);
+
     const { data: persona, error } = await supabase
       .from('persona')
-      .insert({ name: name.trim(), owner_user_id: req.userId })
+      .insert({ name: name.trim(), slug, owner_user_id: req.userId })
       .select('id, name, owner_user_id, created_at')
       .single();
 
