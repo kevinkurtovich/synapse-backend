@@ -69,13 +69,13 @@ router.get('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Snapshot not found' });
     }
 
-    const { data: persona } = await supabase
+    const { data: persona, error: personaError } = await supabase
       .from('persona')
       .select('name, owner_user_id')
       .eq('id', snapshot.persona_id)
       .single();
 
-    if (!persona || persona.owner_user_id !== req.userId) {
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
       return res.status(404).json({ error: 'Snapshot not found' });
     }
 
