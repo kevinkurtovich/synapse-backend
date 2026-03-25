@@ -31,8 +31,33 @@ router.post('/', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/snapshots — list all companions for authenticated user (BUG-0002)
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('snapshot')
+      .select('id, created_at, persona:persona_id(name)')
+      .eq('persona.owner_user_id', req.userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    const result = (data || []).map((row) => ({
+      id: row.id,
+      name: row.persona?.name ?? null,
+      created_at: row.created_at,
+    }));
+
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/snapshots/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticate, async (req, res) => {
   try {
     const { data: snapshot, error } = await supabase
       .from('snapshot')
