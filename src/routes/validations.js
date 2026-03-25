@@ -12,6 +12,36 @@ router.get('/runs', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'restoration_profile_id is required' });
     }
 
+    const { data: restorationProfile, error: restorationProfileError } = await supabase
+      .from('restoration_profile')
+      .select('snapshot_id')
+      .eq('id', restoration_profile_id)
+      .single();
+
+    if (restorationProfileError || !restorationProfile) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const { data: snapshot, error: snapshotError } = await supabase
+      .from('snapshot')
+      .select('persona_id')
+      .eq('id', restorationProfile.snapshot_id)
+      .single();
+
+    if (snapshotError || !snapshot) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const { data: persona, error: personaError } = await supabase
+      .from('persona')
+      .select('owner_user_id')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
     const queryLimit = parseInt(limit, 10) || 1;
 
     const { data: runs, error } = await supabase
@@ -51,6 +81,36 @@ router.get('/runs', authenticate, async (req, res) => {
 // :id is the restoration_profile_id
 router.post('/:id/validate', authenticate, async (req, res) => {
   try {
+    const { data: restorationProfile, error: restorationProfileError } = await supabase
+      .from('restoration_profile')
+      .select('snapshot_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (restorationProfileError || !restorationProfile) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const { data: snapshot, error: snapshotError } = await supabase
+      .from('snapshot')
+      .select('persona_id')
+      .eq('id', restorationProfile.snapshot_id)
+      .single();
+
+    if (snapshotError || !snapshot) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const { data: persona, error: personaError } = await supabase
+      .from('persona')
+      .select('owner_user_id')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
     const result = await validateSnapshot(req.params.id);
     res.status(200).json(result);
   } catch (err) {

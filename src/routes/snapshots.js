@@ -91,14 +91,34 @@ router.get('/:id', authenticate, async (req, res) => {
 // GET /api/snapshots/:id/profiles
 router.get('/:id/profiles', authenticate, async (req, res) => {
   try {
-    const { data: profiles, error } = await supabase
+    const { data: snapshot, error } = await supabase
+      .from('snapshot')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !snapshot) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: persona, error: personaError } = await supabase
+      .from('persona')
+      .select('name, owner_user_id')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: profiles, error: profilesError } = await supabase
       .from('restoration_profile')
-      .select('id, provider, model_name, status, score, created_at')
+      .select('id, provider, model_name, status, calibration_score, created_at')
       .eq('snapshot_id', req.params.id)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
+    if (profilesError) {
+      return res.status(500).json({ error: profilesError.message });
     }
 
     res.status(200).json(profiles || []);
@@ -110,6 +130,26 @@ router.get('/:id/profiles', authenticate, async (req, res) => {
 // GET /api/snapshots/:id/export → ExportSnapshot service
 router.get('/:id/export', authenticate, async (req, res) => {
   try {
+    const { data: snapshot, error } = await supabase
+      .from('snapshot')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !snapshot) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: persona, error: personaError } = await supabase
+      .from('persona')
+      .select('name, owner_user_id')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
     const bundle = await exportSnapshot(req.params.id);
     res.status(200).json(bundle);
   } catch (err) {
