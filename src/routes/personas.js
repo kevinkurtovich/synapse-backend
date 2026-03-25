@@ -1,9 +1,10 @@
 const { Router } = require('express');
 const { distillPersona } = require('../services/distillPersona');
+const { authenticate } = require('../middleware/auth');
 const router = Router();
 
 // POST /api/personas/:id/distill → DistillPersona service
-router.post('/:id/distill', async (req, res) => {
+router.post('/:id/distill', authenticate, async (req, res) => {
   try {
     const personaId = req.params.id;
     const { transcript, parent_snapshot_id } = req.body;

@@ -1,10 +1,11 @@
 const { Router } = require('express');
 const { runDriftCheck } = require('../services/runDriftCheck');
 const { acknowledgeAlert } = require('../services/acknowledgeAlert');
+const { authenticate } = require('../middleware/auth');
 const router = Router();
 
 // POST /api/drift/check → RunDriftCheck service
-router.post('/check', async (req, res) => {
+router.post('/check', authenticate, async (req, res) => {
   try {
     const { drift_monitor_id } = req.body;
     const result = await runDriftCheck(drift_monitor_id);
@@ -31,7 +32,7 @@ router.get('/alerts', async (req, res) => {
 });
 
 // POST /api/drift/alerts/:id/acknowledge → AcknowledgeAlert service
-router.post('/alerts/:id/acknowledge', async (req, res) => {
+router.post('/alerts/:id/acknowledge', authenticate, async (req, res) => {
   try {
     const alert = await acknowledgeAlert(req.params.id);
     res.status(200).json(alert);

@@ -36,7 +36,7 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('snapshot')
-      .select('id, created_at, persona:persona_id(name)')
+      .select('id, created_at, persona!inner(name)')
       .eq('persona.owner_user_id', req.userId)
       .order('created_at', { ascending: false });
 
@@ -71,9 +71,13 @@ router.get('/:id', authenticate, async (req, res) => {
 
     const { data: persona } = await supabase
       .from('persona')
-      .select('name')
+      .select('name, owner_user_id')
       .eq('id', snapshot.persona_id)
       .single();
+
+    if (!persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
 
     res.status(200).json({
       ...snapshot,
@@ -85,7 +89,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // GET /api/snapshots/:id/profiles
-router.get('/:id/profiles', async (req, res) => {
+router.get('/:id/profiles', authenticate, async (req, res) => {
   try {
     const { data: profiles, error } = await supabase
       .from('restoration_profile')
@@ -104,7 +108,7 @@ router.get('/:id/profiles', async (req, res) => {
 });
 
 // GET /api/snapshots/:id/export → ExportSnapshot service
-router.get('/:id/export', async (req, res) => {
+router.get('/:id/export', authenticate, async (req, res) => {
   try {
     const bundle = await exportSnapshot(req.params.id);
     res.status(200).json(bundle);
@@ -115,7 +119,7 @@ router.get('/:id/export', async (req, res) => {
 });
 
 // POST /api/snapshots/import → ImportSnapshot service
-router.post('/import', async (req, res) => {
+router.post('/import', authenticate, async (req, res) => {
   try {
     const result = await importSnapshot(req.body);
     res.status(201).json(result);
@@ -126,8 +130,29 @@ router.post('/import', async (req, res) => {
 });
 
 // POST /api/snapshots/:id/calibrate → CalibrateSnapshot service
-router.post('/:id/calibrate', async (req, res) => {
+router.post('/:id/calibrate', authenticate, async (req, res) => {
   try {
+    // Ownership verification: fetch snapshot, then check persona owner
+    const { data: snapshot, error: snapError } = await supabase
+      .from('snapshot')
+      .select('persona_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (snapError || !snapshot) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    const { data: persona, error: personaError } = await supabase
+      .from('persona')
+      .select('owner_user_id')
+      .eq('id', snapshot.persona_id)
+      .single();
+
+    if (personaError || !persona || persona.owner_user_id !== req.userId) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
     const { provider, model_name } = req.body;
     const result = await calibrateSnapshot(req.params.id, provider, model_name);
     res.status(201).json(result);

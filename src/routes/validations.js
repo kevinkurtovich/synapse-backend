@@ -1,10 +1,11 @@
 const { Router } = require('express');
 const { validateSnapshot } = require('../services/validateSnapshot');
+const { authenticate } = require('../middleware/auth');
 const supabase = require('../supabase');
 const router = Router();
 
 // GET /api/validations/runs?restoration_profile_id=:id&limit=1
-router.get('/runs', async (req, res) => {
+router.get('/runs', authenticate, async (req, res) => {
   try {
     const { restoration_profile_id, limit } = req.query;
     if (!restoration_profile_id) {
@@ -48,7 +49,7 @@ router.get('/runs', async (req, res) => {
 
 // POST /api/validations/:id/validate → ValidateSnapshot service
 // :id is the restoration_profile_id
-router.post('/:id/validate', async (req, res) => {
+router.post('/:id/validate', authenticate, async (req, res) => {
   try {
     const result = await validateSnapshot(req.params.id);
     res.status(200).json(result);
